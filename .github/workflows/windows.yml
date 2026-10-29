@@ -65,6 +65,11 @@ jobs:
         shell: pwsh
         run: |
           & 'C:\Program Files (x86)\NSIS\makensis.exe' installer\NOMIKO.nsi
+          if ($LASTEXITCODE -ne 0) { throw "NSIS installer failed." }
+          $found = Get-ChildItem -Path . -Recurse -File -Filter 'NOMIKO-Setup-0.9.0-alpha.exe' | Select-Object -First 1
+          if (-not $found) { throw "Installer was not generated." }
+          $target = Join-Path (Get-Location).Path 'NOMIKO-Setup-0.9.0-alpha.exe'
+          if ($found.FullName -ne $target) { Copy-Item -LiteralPath $found.FullName -Destination $target -Force }
 
       - name: Build portable ZIP
         shell: pwsh
