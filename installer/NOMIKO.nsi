@@ -16,7 +16,7 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "English"
 Section "NOMIKO browser" SEC_MAIN
  SetOutPath "$INSTDIR"
- File /r "${__FILEDIR__}\..\dist\NOMIKO\*"
+ File /r "..\dist\NOMIKO\*"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
  CreateDirectory "$SMPROGRAMS\NOMIKO"
  CreateShortCut "$SMPROGRAMS\NOMIKO\NOMIKO.lnk" "$INSTDIR\NOMIKO.exe"
