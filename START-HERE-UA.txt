@@ -1,0 +1,13 @@
+NOMIKO v0.8.2 Alpha — Windows 11
+
+1. Закрий старий NOMIKO.
+2. Зроби копію %APPDATA%\NOMIKO.
+3. Розпакуй архів у нову папку.
+4. Запусти run-windows.bat — твій Python 3.15 залишається.
+5. Нові можливості: Menu > NOMIKO tools.
+6. Нові налаштування: Settings > Workspaces / Data & backup / Appearance / Modules.
+
+NOMIKO експериментальний, без перевіреної анонімності й без підписаних автооновлень.
+Готовий EXE не включено; build-windows.bat може зібрати його у Windows.
+
+Деталі у README_UA.md.

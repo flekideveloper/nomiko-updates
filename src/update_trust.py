@@ -1,0 +1,6 @@
+"""Pinned NOMIKO update trust anchor. Only the corresponding private key can sign releases."""
+RELEASE_OWNER = "flekideveloper"
+RELEASE_REPO = "nomiko-updates"
+PUBLIC_ED25519_KEY_B64 = "Cv8+M5CwPSEE3/id9niVhfP9/Rd+Z+1TyuPgy1aA79M="
+CURRENT_VERSION = "0.9.0"
+CURRENT_CHANNEL = "alpha"
