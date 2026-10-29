@@ -3,6 +3,8 @@ name: NOMIKO Windows build and signed release
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
