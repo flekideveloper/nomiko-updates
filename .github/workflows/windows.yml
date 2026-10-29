@@ -1,0 +1,100 @@
+name: NOMIKO Windows build and signed release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python (build machine only)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+          cache: pip
+
+      - name: Verify NOMIKO source is present
+        shell: pwsh
+        run: |
+          foreach ($file in @('main.py', 'requirements.txt', 'src/update_trust.py', 'tools/sign_release.py', 'installer/NOMIKO.nsi', 'update_helper.py')) {
+            if (-not (Test-Path $file)) { throw "Source file missing: $file. Upload the NOMIKO v0.9.0 source files before building." }
+          }
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Run offline tests
+        shell: pwsh
+        run: python -m unittest discover -s tests -q
+
+      - name: Build NOMIKO
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name NOMIKO --collect-all PySide6.QtWebEngineCore --collect-all PySide6.QtWebEngineWidgets --collect-all cryptography main.py
+
+      - name: Build independent update helper
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name NOMIKO-UpdateHelper --distpath helper-dist update_helper.py
+          Copy-Item helper-dist\NOMIKO-UpdateHelper.exe dist\NOMIKO\NOMIKO-UpdateHelper.exe
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Build per-user installer
+        shell: pwsh
+        run: |
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' installer\NOMIKO.nsi
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist\NOMIKO\* -DestinationPath NOMIKO-Windows-portable.zip -CompressionLevel Optimal
+
+      - name: Upload unsigned CI build for Windows smoke testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: nomiko-windows-test-build
+          path: |
+            NOMIKO-Windows-portable.zip
+            NOMIKO-Setup-*.exe
+
+      - name: Require matching release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_name }}' -ne 'v0.9.0-alpha') {
+            throw "Tag does not match the v0.9.0-alpha code version. Update all version references before releasing."
+          }
+
+      - name: Create signed release manifest
+        if: github.ref == 'refs/tags/v0.9.0-alpha'
+        shell: pwsh
+        env:
+          NOMIKO_SIGNING_KEY_B64: ${{ secrets.NOMIKO_SIGNING_KEY_B64 }}
+        run: |
+          if (-not $env:NOMIKO_SIGNING_KEY_B64) { throw "Missing GitHub Actions secret NOMIKO_SIGNING_KEY_B64" }
+          python tools/sign_release.py --version 0.9.0 --channel alpha --installer NOMIKO-Setup-0.9.0-alpha.exe --out release
+
+      - name: Publish signed GitHub release
+        if: github.ref == 'refs/tags/v0.9.0-alpha'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create 'v0.9.0-alpha' NOMIKO-Setup-0.9.0-alpha.exe NOMIKO-Windows-portable.zip release/update.json release/update.sig --repo '${{ github.repository }}' --title 'NOMIKO v0.9.0 Alpha' --notes 'Initial signed update baseline. Windows build must be smoke-tested before production distribution.' --prerelease --verify-tag
