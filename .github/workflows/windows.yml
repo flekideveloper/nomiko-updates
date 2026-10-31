@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
 
 permissions:
   contents: read
@@ -40,7 +38,13 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
+          python -m pip install -r requirements.txt pyinstaller pillow
+
+      - name: Generate Windows icon assets
+        shell: pwsh
+        run: |
+          python tools/generate_icons.py
+          if (!(Test-Path assets/NOMIKO.ico)) { throw 'Icon creation failed' }
 
       - name: Run offline tests
         shell: pwsh
@@ -49,12 +53,12 @@ jobs:
       - name: Build NOMIKO
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onedir --name NOMIKO --collect-all PySide6.QtWebEngineCore --collect-all PySide6.QtWebEngineWidgets --collect-all cryptography main.py
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name NOMIKO --icon assets/NOMIKO.ico --add-data 'assets/NOMIKO.ico;assets' --collect-all PySide6.QtWebEngineCore --collect-all PySide6.QtWebEngineWidgets --collect-all cryptography main.py
 
       - name: Build independent update helper
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name NOMIKO-UpdateHelper --distpath helper-dist update_helper.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name NOMIKO-UpdateHelper --icon assets/NOMIKO.ico --distpath helper-dist update_helper.py
           Copy-Item helper-dist\NOMIKO-UpdateHelper.exe dist\NOMIKO\NOMIKO-UpdateHelper.exe
 
       - name: Install NSIS
@@ -66,9 +70,9 @@ jobs:
         run: |
           & 'C:\Program Files (x86)\NSIS\makensis.exe' installer\NOMIKO.nsi
           if ($LASTEXITCODE -ne 0) { throw "NSIS installer failed." }
-          $found = Get-ChildItem -Path . -Recurse -File -Filter 'NOMIKO-Setup-0.9.0-alpha.exe' | Select-Object -First 1
+          $found = Get-ChildItem -Path . -Recurse -File -Filter 'NOMIKO-Setup-0.9.1-alpha.exe' | Select-Object -First 1
           if (-not $found) { throw "Installer was not generated." }
-          $target = Join-Path (Get-Location).Path 'NOMIKO-Setup-0.9.0-alpha.exe'
+          $target = Join-Path (Get-Location).Path 'NOMIKO-Setup-0.9.1-alpha.exe'
           if ($found.FullName -ne $target) { Copy-Item -LiteralPath $found.FullName -Destination $target -Force }
 
       - name: Build portable ZIP
@@ -83,27 +87,49 @@ jobs:
             NOMIKO-Windows-portable.zip
             NOMIKO-Setup-*.exe
 
-      - name: Require matching release tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        run: |
-          if ('${{ github.ref_name }}' -ne 'v0.9.0-alpha') {
-            throw "Tag does not match the v0.9.0-alpha code version. Update all version references before releasing."
-          }
-
-      - name: Create signed release manifest
-        if: github.ref == 'refs/tags/v0.9.0-alpha'
-        shell: pwsh
-        env:
-          NOMIKO_SIGNING_KEY_B64: ${{ secrets.NOMIKO_SIGNING_KEY_B64 }}
-        run: |
-          if (-not $env:NOMIKO_SIGNING_KEY_B64) { throw "Missing GitHub Actions secret NOMIKO_SIGNING_KEY_B64" }
-          python tools/sign_release.py --version 0.9.0 --channel alpha --installer NOMIKO-Setup-0.9.0-alpha.exe --out release
-
-      - name: Publish signed GitHub release
-        if: github.ref == 'refs/tags/v0.9.0-alpha'
+      - name: Check explicit signed release request
+        id: gate
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create 'v0.9.0-alpha' NOMIKO-Setup-0.9.0-alpha.exe NOMIKO-Windows-portable.zip release/update.json release/update.sig --repo '${{ github.repository }}' --title 'NOMIKO v0.9.0 Alpha' --notes 'Initial signed update baseline. Windows build must be smoke-tested before production distribution.' --prerelease --verify-tag
+          $version = python -c 'from src.update_trust import CURRENT_VERSION; print(CURRENT_VERSION)'
+          $tag = "v$version-alpha"
+          if (!(Test-Path '.github/release-request.txt')) {
+            'publish=false' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $request = (Get-Content '.github/release-request.txt' -Raw).Trim()
+          if ($request -ne "PUBLISH $tag") { throw "Release request '$request' does not match $tag" }
+          gh release view $tag --repo '${{ github.repository }}' --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            'publish=false' >> $env:GITHUB_OUTPUT
+            Write-Host "Already released: $tag"
+          } else {
+            'publish=true' >> $env:GITHUB_OUTPUT
+            "version=$version" >> $env:GITHUB_OUTPUT
+            "tag=$tag" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Sign update manifest
+        if: steps.gate.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          NOMIKO_SIGNING_KEY_B64: ${{ secrets.NOMIKO_SIGNING_KEY_B64 }}
+        run: |
+          if (-not $env:NOMIKO_SIGNING_KEY_B64) { throw 'NOMIKO_SIGNING_KEY_B64 is missing' }
+          $version = '${{ steps.gate.outputs.version }}'
+          python tools/sign_release.py --version $version --channel alpha --installer "NOMIKO-Setup-$version-alpha.exe" --out release --notes 'NOMIKO desktop and taskbar icon; Windows desktop shortcut; signed automatic updates.'
+          if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
+
+      - name: Publish signed GitHub Release
+        if: steps.gate.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.gate.outputs.tag }}'
+          $version = '${{ steps.gate.outputs.version }}'
+          gh release create $tag "NOMIKO-Setup-$version-alpha.exe" NOMIKO-Windows-portable.zip release/update.json release/update.sig --repo '${{ github.repository }}' --target '${{ github.sha }}' --title "NOMIKO $version Alpha" --notes 'Desktop shortcut, Windows icons, signed GitHub update manifest. Experimental alpha; no Authenticode code signature.' --prerelease
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing release failed' }

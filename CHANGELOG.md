@@ -1,3 +1,12 @@
+# NOMIKO changelog
+
+## v0.9.1 Alpha
+- Graphite NOMIKO Windows icon (16px to 256px).
+- EXE and taskbar icon + stable AppUserModelID.
+- Desktop and Start Menu shortcuts with branded icons, removed on uninstall.
+- Signed GitHub Alpha release pipeline and existing Update Center integration.
+- All browser settings stay in %APPDATA%\NOMIKO.
+
 # NOMIKO v0.9.0 Alpha — Update foundation
 
 - Added signed update discovery via GitHub Releases API (Ed25519 pinned public key).
